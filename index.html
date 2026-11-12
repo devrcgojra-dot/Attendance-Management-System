@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance Management System</title>
+<style>
+:root{--bg:#f2f5f4;--ink:#16262b;--mut:#5d6f74;--line:#d5dedc;--card:#fff;--acc:#0f766e;--warn:#b45309;--bad:#b91c1c;--ok:#15803d}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1a1d;--ink:#e6efee;--mut:#93a8ac;--line:#25393e;--card:#16262b;--acc:#2dd4bf}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:var(--ink);color:var(--bg)}
+header b{font-size:17px}main{max-width:1000px;margin:20px auto;padding:0 14px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+nav button{background:none;border:1px solid var(--line);color:var(--ink);padding:7px 14px;border-radius:6px;cursor:pointer}
+nav button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:18px}
+input,select,textarea{padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;max-width:100%}
+button.b{background:var(--acc);color:#fff;border:0;padding:8px 16px;border-radius:6px;cursor:pointer;font:inherit}
+button.b.r{background:var(--bad)}button.b:disabled{opacity:.5}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600}.wrap{overflow-x:auto}
+.tag{padding:2px 8px;border-radius:10px;font-size:12px;border:1px solid currentColor}
+.present,.approved{color:var(--ok)}.late,.pending{color:var(--warn)}.absent,.rejected{color:var(--bad)}
+#msg{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 18px;border-radius:6px;display:none}
+.clock{font-size:34px;font-variant-numeric:tabular-nums;margin:4px 0 12px}
+#login{max-width:330px;margin:12vh auto}#login input{width:100%;margin-bottom:10px}
+.hash{font-family:ui-monospace,monospace;font-size:11px;color:var(--mut)}
+.chain{padding:8px 12px;border-radius:6px;margin-bottom:10px;border:1px solid}
+</style></head><body>
+<div id="msg" role="status"></div>
+<div id="login"><section><h2>Attendance sign in</h2>
+<input id="lu" placeholder="Username" autocomplete="username">
+<input id="lp" type="password" placeholder="Password" autocomplete="current-password">
+<button class="b" onclick="login()" style="width:100%">Sign in</button></section></div>
+
+<div id="app" hidden>
+<header><b>Attendance Management</b><span><span id="who"></span> &nbsp; <button class="b" onclick="logout()">Sign out</button></span></header>
+<main><nav id="nav"></nav><div id="view"></div></main></div>
+
+<script>
+const $=s=>document.querySelector(s); let ME=null, TAB='today';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(t){const m=$('#msg');m.textContent=t;m.style.display='block';setTimeout(()=>m.style.display='none',2800)}
+async function api(u,method='GET',body){
+  const r=await fetch(u,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({})); if(!r.ok){toast(j.error||'Something went wrong');throw j} return j}
+async function login(){try{await api('/api/login','POST',{username:$('#lu').value,password:$('#lp').value});boot()}catch(e){}}
+async function logout(){await api('/api/logout','POST');location.reload()}
+async function boot(){try{ME=await api('/api/me')}catch(e){return}
+  $('#login').hidden=true;$('#app').hidden=false;$('#who').textContent=`${ME.name} (${ME.role})`;
+  const tabs=[['today','Today'],['history','Attendance'],['leaves','Leaves'],['corr','Corrections']];
+  if(ME.role!='employee')tabs.push(['report','Reports']);
+  if(ME.role=='admin')tabs.push(['users','Users'],['audit','Audit log']);
+  $('#nav').innerHTML=tabs.map(t=>`<button data-t="${t[0]}" onclick="go('${t[0]}')">${t[1]}</button>`).join('');go('today')}
+function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t));V[t]()}
+const tbl=(h,r)=>`<div class="wrap"><table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${r.join('')||`<tr><td colspan="${h.length}">Nothing here yet.</td></tr>`}</table></div>`;
+const tag=s=>`<span class="tag ${esc(s)}">${esc(s)}</span>`; const tm=s=>s?esc(s.slice(11,16)):'–';
+const V={
+async today(){const d=new Date().toISOString().slice(0,10);const a=(await api('/api/attendance?month='+d.slice(0,7))).filter(x=>x.user_id==ME.id&&x.day==d)[0];
+ $('#view').innerHTML=`<section><h2>Today</h2><div class="clock" id="clk"></div>
+ <p>Shift starts at ${esc(ME.shift_start)}. Leave balance: <b>${ME.leave_balance}</b> days.</p>
+ <p>${a?`Checked in at <b>${tm(a.check_in)}</b> ${tag(a.status)} ${a.check_out?`· Checked out at <b>${tm(a.check_out)}</b>`:''}`:'You have not checked in yet.'}</p>
+ <button class="b" ${a?'disabled':''} onclick="act('checkin')">Check in</button>
+ <button class="b" ${!a||a.check_out?'disabled':''} onclick="act('checkout')">Check out</button></section>`;
+ const k=()=>$('#clk')&&($('#clk').textContent=new Date().toLocaleTimeString());k();setInterval(k,1000)},
+async history(){const m=new Date().toISOString().slice(0,7);
+ $('#view').innerHTML=`<section><h2>Attendance</h2><div class="row"><input type="month" id="mo" value="${m}" onchange="V.hl()"></div><div id="hl"></div></section>`;V.hl()},
+async hl(){const d=await api('/api/attendance?month='+$('#mo').value);
+ $('#hl').innerHTML=tbl(['Date','Name','In','Out','Status','Source'],d.map(r=>`<tr><td>${r.day}</td><td>${esc(r.full_name)}</td><td>${tm(r.check_in)}</td><td>${tm(r.check_out)}</td><td>${tag(r.status)}</td><td>${r.source}</td></tr>`))},
+async leaves(){const d=await api('/api/leaves'),mgr=ME.role!='employee';
+ $('#view').innerHTML=`<section><h2>Request leave</h2><div class="row"><input type="date" id="ls"><input type="date" id="le"><input id="lr" placeholder="Reason" size="30"><button class="b" onclick="newLeave()">Submit request</button></div></section>
+ <section><h2>Leave requests</h2>`+tbl(['Name','From','To','Reason','Status',mgr?'Action':''],d.map(r=>`<tr><td>${esc(r.full_name)}</td><td>${r.start_date}</td><td>${r.end_date}</td><td>${esc(r.reason)}</td><td>${tag(r.status)}</td><td>${mgr&&r.status=='pending'?dec('leaves',r.id):''}</td></tr>`))+'</section>'},
+async corr(){const d=await api('/api/corrections'),mgr=ME.role!='employee';
+ $('#view').innerHTML=`<section><h2>Request a correction</h2><p>Records are never edited directly. A manager approves and a new version is stored.</p>
+ <div class="row"><input type="date" id="cd"><label>In <input type="time" id="ci"></label><label>Out <input type="time" id="co"></label><input id="cr" placeholder="Reason (required)" size="28"><button class="b" onclick="newCorr()">Submit request</button></div></section>
+ <section><h2>Correction requests</h2>`+tbl(['Name','Date','New in','New out','Reason','Status',mgr?'Action':''],d.map(r=>`<tr><td>${esc(r.full_name)}</td><td>${r.day}</td><td>${tm(r.new_check_in)}</td><td>${tm(r.new_check_out)}</td><td>${esc(r.reason)}</td><td>${tag(r.status)}</td><td>${mgr&&r.status=='pending'?dec('corrections',r.id):''}</td></tr>`))+'</section>'},
+report(){const m=new Date().toISOString().slice(0,7);
+ $('#view').innerHTML=`<section><h2>Monthly report</h2><div class="row"><input type="month" id="rm" value="${m}"><button class="b" onclick="location='/api/report.csv?month='+$('#rm').value">Download CSV</button></div></section>`},
+async users(){const d=await api('/api/users');
+ $('#view').innerHTML=`<section><h2>Add user</h2><div class="row"><input id="un" placeholder="Username"><input id="fn" placeholder="Full name"><input id="up" type="password" placeholder="Password"><input id="ud" placeholder="Department"><select id="ur"><option>employee</option><option>manager</option><option>admin</option></select><button class="b" onclick="newUser()">Add user</button></div></section>
+ <section><h2>Users</h2>`+tbl(['Username','Name','Role','Department','Leave balance'],d.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${u.role}</td><td>${esc(u.department)}</td><td>${u.leave_balance}</td></tr>`))+'</section>'},
+async audit(){const[d,v]=await Promise.all([api('/api/audit'),api('/api/audit/verify')]);
+ $('#view').innerHTML=`<section><h2>Audit log</h2><div class="chain ${v.valid?'approved':'rejected'}">${v.valid?'Hash chain verified. No tampering detected.':'Chain broken at entry #'+v.broken_at+'. Records may have been altered.'}</div>`+
+ tbl(['#','Time','User','Action','Entity','Details','IP','Hash'],d.map(r=>`<tr><td>${r.id}</td><td>${r.ts.replace('T',' ')}</td><td>${esc(r.username||'–')}</td><td>${r.action}</td><td>${r.entity||''} ${r.entity_id||''}</td><td class="hash">${esc((r.old_value?'old: '+r.old_value+' ':'')+(r.new_value?'new: '+r.new_value:'')).slice(0,160)}</td><td>${r.ip}</td><td class="hash">${r.hash.slice(0,10)}</td></tr>`))+'</section>'}};
+const dec=(t,id)=>`<button class="b" onclick="decide('${t}',${id},true)">Approve</button> <button class="b r" onclick="decide('${t}',${id},false)">Reject</button>`;
+async function decide(t,id,ok){const c=prompt(ok?'Comment (optional)':'Reason for rejection');if(c===null)return;
+ try{await api(`/api/${t}/${id}/decide`,'POST',{approve:ok,comment:c});toast('Saved');go(TAB)}catch(e){}}
+async function act(a){try{await api('/api/attendance/'+a,'POST');toast(a=='checkin'?'Checked in':'Checked out');boot()}catch(e){}}
+async function newLeave(){try{await api('/api/leaves','POST',{start_date:$('#ls').value,end_date:$('#le').value,reason:$('#lr').value});toast('Leave requested');go('leaves')}catch(e){}}
+async function newCorr(){const d=$('#cd').value,f=t=>t?d+'T'+t+':00':'';try{await api('/api/corrections','POST',{day:d,new_check_in:f($('#ci').value),new_check_out:f($('#co').value),reason:$('#cr').value});toast('Correction requested');go('corr')}catch(e){}}
+async function newUser(){try{await api('/api/users','POST',{username:$('#un').value,full_name:$('#fn').value,password:$('#up').value,department:$('#ud').value,role:$('#ur').value});toast('User added');go('users')}catch(e){}}
+document.addEventListener('keydown',e=>{if(e.key=='Enter'&&!$('#login').hidden)login()});boot();
+</script></body></html>
